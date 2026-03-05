@@ -1,0 +1,97 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build onefile EXE
+        run: python build.py --onefile
+
+      - name: Build portable (onedir)
+        run: python build.py --portable
+
+      - name: Zip portable folder
+        shell: pwsh
+        run: Compress-Archive -Path dist/WhisperVoice -DestinationPath dist/WhisperVoice-portable-win64.zip
+
+      - name: Upload onefile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperVoice-windows
+          path: dist/WhisperVoice.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperVoice-portable-windows
+          path: dist/WhisperVoice-portable-win64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    runs-on: windows-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build onefile EXE
+        run: python build.py --onefile
+
+      - name: Build portable (onedir)
+        run: python build.py --portable
+
+      - name: Zip portable folder
+        shell: pwsh
+        run: Compress-Archive -Path dist/WhisperVoice -DestinationPath dist/WhisperVoice-portable-win64.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/WhisperVoice.exe
+            dist/WhisperVoice-portable-win64.zip
+          generate_release_notes: true
+          name: "Whisper Voice ${{ github.ref_name }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
