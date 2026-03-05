@@ -42,6 +42,8 @@ from .providers.deepgram_provider import DeepgramProvider
 from .providers.local_provider import LocalProvider
 from .providers.base import STTProvider
 from .error_handler import categorize_error, show_error_from_thread
+from .sound_feedback import SoundFeedback
+from . import autostart as autostart_module
 
 # Backward compat alias
 TextInserter = SmartTextInserter
@@ -76,6 +78,9 @@ class WhisperVoiceApp:
         self._network_monitor: Optional[NetworkMonitor] = None
         self._engine: Optional[TranscriptionEngine] = None
 
+        # Sound feedback
+        self._sound_feedback = SoundFeedback(enabled=config.get("sound_feedback", False))
+
         # Recording timer (auto-stop after max_recording_seconds)
         self._recording_timer: Optional[threading.Timer] = None
         self._recording_start_time: float = 0.0
@@ -88,6 +93,7 @@ class WhisperVoiceApp:
         """Initialise components and block until quit (via UIController.run())."""
         logger.info("Starting Whisper Voice")
         self._validate_config()
+        self._sync_autostart()
         self._init_components()
         self._running = True
 
@@ -142,6 +148,7 @@ class WhisperVoiceApp:
             self._recorder.start()
             self._recording = True
             logger.info("Recording started")
+            self._sound_feedback.play_start_recording()
             if self._ui:
                 self._ui.show_recording()
 
@@ -182,6 +189,7 @@ class WhisperVoiceApp:
         self._recorder = None
 
         self._processing = True
+        self._sound_feedback.play_stop_recording()
 
         if self._ui:
             self._ui.hide_recording()
@@ -245,6 +253,7 @@ class WhisperVoiceApp:
             try:
                 self._inserter.insert(text)
                 logger.info("Text inserted (%d chars)", len(text))
+                self._sound_feedback.play_transcription_complete()
             except Exception as exc:
                 logger.error("Text insertion failed: %s", exc)
 
@@ -338,6 +347,16 @@ class WhisperVoiceApp:
     # ------------------------------------------------------------------
     # Init / shutdown helpers
     # ------------------------------------------------------------------
+
+    def _sync_autostart(self) -> None:
+        """Sync OS autostart state with config['auto_start'] setting."""
+        try:
+            enabled = bool(self.config.get("auto_start", False))
+            autostart_module.sync_autostart(enabled)
+            logger.debug("Autostart sync: %s", "enabled" if enabled else "disabled")
+        except Exception as exc:
+            # Non-fatal — app still works without autostart
+            logger.warning("Autostart sync failed (non-fatal): %s", exc)
 
     def _validate_config(self) -> None:
         cfg = self.config
