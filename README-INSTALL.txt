@@ -1,14 +1,15 @@
 Whisper Voice — Голосовой ввод текста
+======================================
 
-ЗАПУСК:
-1. Распакуйте папку куда угодно
-2. Запустите WhisperVoice.exe
-3. При первом запуске укажите API-ключ OpenAI в настройках
+БЫСТРЫЙ СТАРТ:
+1. Запустите WhisperVoice.exe
+2. Следуйте мастеру настройки (введите API ключ OpenAI)
+3. Нажмите Ctrl+Shift+Space — начнётся запись
+4. Говорите, затем нажмите снова — текст появится в активном окне
 
-НАСТРОЙКИ:
-Файл: %USERPROFILE%\.whisper-voice\config.json
-Горячая клавиша по умолчанию: Ctrl+Shift+Space
+ПОЛУЧИТЬ API КЛЮЧ: platform.openai.com/api-keys
 
-РЕЖИМЫ:
-- Toggle: нажал — запись, нажал снова — остановка
-- Hold: держишь — записывает, отпустил — остановка
+НАСТРОЙКИ: %USERPROFILE%\.whisper-voice\config.json
+ЛОГИ:      %USERPROFILE%\.whisper-voice\whisper-voice.log
+
+ПОДРОБНАЯ ИНСТРУКЦИЯ: docs\USER-GUIDE.md
