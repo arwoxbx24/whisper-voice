@@ -271,11 +271,13 @@ class WhisperVoiceApp:
         can_local = has_local  # local doesn't need key (checked at import time)
 
         if not (can_openai or can_deepgram or can_local):
-            raise RuntimeError(
-                "No usable STT provider. "
+            # Log warning but do NOT raise — main.py already showed a setup dialog.
+            # App starts in "no-provider" mode; user can edit config and restart.
+            logger.warning(
+                "No usable STT provider configured. "
                 "Set 'api_key' for OpenAI, 'deepgram_api_key' for Deepgram, "
-                "or add 'local' to stt_providers (requires faster-whisper). "
-                "Edit ~/.whisper-voice/config.json."
+                "or add 'local' to stt_providers. "
+                "Edit ~/.whisper-voice/config.json then restart."
             )
 
     def _build_providers(self, cfg: dict[str, Any]) -> List[STTProvider]:
@@ -307,9 +309,10 @@ class WhisperVoiceApp:
                 logger.warning("Failed to initialise provider %r: %s", name, exc)
 
         if not providers:
-            raise RuntimeError(
+            logger.warning(
                 "No STT providers could be initialised. "
-                "Check API keys and installed packages."
+                "Check API keys and installed packages. "
+                "Hotkey will work but transcription will fail until a provider is configured."
             )
         return providers
 
@@ -401,8 +404,12 @@ class WhisperVoiceApp:
         # Transcription engine (multi-provider)
         try:
             provider_list = self._build_providers(cfg)
-            self._engine = TranscriptionEngine(providers=provider_list)
-            logger.info("TranscriptionEngine ready with %d provider(s)", len(provider_list))
+            if provider_list:
+                self._engine = TranscriptionEngine(providers=provider_list)
+                logger.info("TranscriptionEngine ready with %d provider(s)", len(provider_list))
+            else:
+                self._engine = None
+                logger.warning("TranscriptionEngine not started — no providers available")
         except Exception as exc:
             logger.warning("TranscriptionEngine init failed (%s), falling back to WhisperTranscriber", exc)
             self._engine = None

@@ -40,34 +40,102 @@ def _locate_icon():
 
 def _hidden_imports():
     return [
+        # Audio
         "sounddevice",
         "soundfile",
         "numpy",
+        "wave",
+        "cffi",
+        "_cffi_backend",
+        # OpenAI
         "openai",
+        "openai.types",
+        "openai.types.audio",
+        "openai._utils",
+        "openai._models",
+        # HTTP stack
+        "httpx",
+        "httpcore",
+        "httpcore._backends.sync",
+        "httpcore._backends.anyio",
+        "httpcore._backends.trio",
+        "anyio",
+        "anyio._backends._asyncio",
+        "anyio._backends._trio",
+        "certifi",
+        "charset_normalizer",
+        "idna",
+        "h11",
+        # Hotkey / input
         "pynput",
         "pynput.keyboard",
         "pynput.keyboard._win32",
         "pynput.mouse",
         "pynput.mouse._win32",
+        # Clipboard
         "pyperclip",
+        "win32clipboard",
+        "win32con",
+        "win32api",
+        "win32gui",
+        "pywintypes",
+        # Tray icon
         "pystray",
         "pystray._win32",
+        # Pillow
         "PIL",
         "PIL.Image",
         "PIL.ImageDraw",
         "PIL.ImageFont",
-        "pkg_resources.py2_compat",
-        "httpx",
-        "httpcore",
-        "anyio",
-        "certifi",
-        "charset_normalizer",
-        "deepgram",
+        "PIL._imaging",
+        # Tkinter (bundled with Python, but PyInstaller needs hints)
         "tkinter",
         "tkinter.font",
-        "win32api",
-        "win32con",
-        "win32gui",
+        "tkinter.messagebox",
+        "tkinter.ttk",
+        "_tkinter",
+        # Deepgram SDK (optional provider)
+        "deepgram",
+        "deepgram.audio",
+        "deepgram.clients",
+        "deepgram.clients.listen",
+        "websockets",
+        "websockets.client",
+        "websockets.connection",
+        "aiohttp",
+        # Standard library modules PyInstaller sometimes misses
+        "sqlite3",
+        "_sqlite3",
+        "socket",
+        "ssl",
+        "_ssl",
+        "email",
+        "email.mime",
+        "email.mime.text",
+        "email.mime.multipart",
+        "html",
+        "html.parser",
+        "urllib",
+        "urllib.parse",
+        "urllib.request",
+        "http",
+        "http.client",
+        "json",
+        "pathlib",
+        "ctypes",
+        "ctypes.util",
+        "_ctypes",
+        "threading",
+        "queue",
+        "concurrent",
+        "concurrent.futures",
+        "asyncio",
+        # pkg_resources / importlib
+        "pkg_resources",
+        "pkg_resources.py2_compat",
+        "importlib.metadata",
+        # anyio helper
+        "sniffio",
     ]
 
 
@@ -77,6 +145,23 @@ def _data_files():
     if assets_dir.exists():
         files.append(f"{assets_dir}{SEP}assets")
     return files
+
+
+def _collect_all_packages():
+    """Packages that use dynamic imports and need --collect-all."""
+    return [
+        "openai",
+        "pystray",
+        "pynput",
+        "PIL",
+        "sounddevice",
+        "soundfile",
+        "deepgram",
+        "httpx",
+        "httpcore",
+        "anyio",
+        "pyperclip",
+    ]
 
 
 def _run_pyinstaller(mode_flag: str, icon_path: str | None):
@@ -98,6 +183,9 @@ def _run_pyinstaller(mode_flag: str, icon_path: str | None):
 
     for hidden in _hidden_imports():
         cmd += ["--hidden-import", hidden]
+
+    for pkg in _collect_all_packages():
+        cmd += ["--collect-all", pkg]
 
     for data in _data_files():
         cmd += ["--add-data", data]
