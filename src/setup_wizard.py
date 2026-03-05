@@ -105,6 +105,10 @@ class SetupWizard:
         self._deepgram_status_var = None
         self._deepgram_status_lbl = None
         self._deepgram_test_btn = None
+        self._key_var = None
+        self._dg_key_var = None
+        self._key_check_timer = None
+        self._dg_key_check_timer = None
         self._local_model_var = None
         self._local_status_var = None
         self._local_download_btn = None
@@ -411,6 +415,7 @@ class SetupWizard:
             font=_FONT,
         ).pack(side="left", padx=(8, 0))
 
+        self._key_var = tk.StringVar()
         self._key_entry = tk.Entry(
             entry_frame_oa,
             bg=_BG2, fg=_TEXT,
@@ -419,8 +424,10 @@ class SetupWizard:
             highlightthickness=0,
             show="\u2022",
             insertbackground=_TEXT,
+            textvariable=self._key_var,
         )
         self._key_entry.pack(side="left", fill="x", expand=True, ipady=7, padx=(2, 8))
+        self._key_var.trace_add("write", self._on_key_changed)
 
         existing_key = self._config.get("api_key", "")
         if existing_key:
@@ -472,6 +479,7 @@ class SetupWizard:
                                   highlightthickness=1, highlightbackground=_BORDER)
         entry_frame_dg.pack(fill="x", ipady=2)
 
+        self._dg_key_var = tk.StringVar()
         self._deepgram_key_entry = tk.Entry(
             entry_frame_dg,
             bg=_BG2, fg=_TEXT,
@@ -480,8 +488,10 @@ class SetupWizard:
             highlightthickness=0,
             show="\u2022",
             insertbackground=_TEXT,
+            textvariable=self._dg_key_var,
         )
         self._deepgram_key_entry.pack(side="left", fill="x", expand=True, ipady=7, padx=8)
+        self._dg_key_var.trace_add("write", self._on_dg_key_changed)
 
         existing_dg = self._config.get("deepgram_api_key", "")
         if existing_dg:
@@ -955,6 +965,40 @@ class SetupWizard:
     # API Key test
     # ------------------------------------------------------------------
 
+    def _on_key_changed(self, *args) -> None:
+        """Debounced auto-validation triggered on OpenAI key entry change."""
+        if self._key_check_timer:
+            self._root.after_cancel(self._key_check_timer)
+            self._key_check_timer = None
+        key = self._key_var.get().strip() if self._key_var else ""
+        if not key:
+            return
+        if not key.startswith("sk-"):
+            if self._api_status_var:
+                self._api_status_var.set("Ключ должен начинаться с sk-")
+            if self._api_status_lbl:
+                self._api_status_lbl.config(fg=_YELLOW)
+            return
+        if len(key) >= 20:
+            if self._api_status_var:
+                self._api_status_var.set("Проверяю...")
+            if self._api_status_lbl:
+                self._api_status_lbl.config(fg=_TEXT_DIM)
+            self._key_check_timer = self._root.after(500, self._test_api_key)
+
+    def _on_dg_key_changed(self, *args) -> None:
+        """Debounced auto-validation triggered on Deepgram key entry change."""
+        if self._dg_key_check_timer:
+            self._root.after_cancel(self._dg_key_check_timer)
+            self._dg_key_check_timer = None
+        key = self._dg_key_var.get().strip() if self._dg_key_var else ""
+        if len(key) >= 20:
+            if self._deepgram_status_var:
+                self._deepgram_status_var.set("Проверяю...")
+            if self._deepgram_status_lbl:
+                self._deepgram_status_lbl.config(fg=_TEXT_DIM)
+            self._dg_key_check_timer = self._root.after(500, self._test_deepgram_key)
+
     def _test_api_key(self) -> None:
         key = self._key_entry.get().strip() if self._key_entry else ""
         if not key:
@@ -1226,7 +1270,18 @@ def _check_openai_key(key: str) -> tuple:
             return True, f"Ключ действителен ({count} моделей)"
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            return False, "Неверный ключ (401 Unauthorized)"
+            try:
+                body = _json.loads(exc.read())
+                err_msg = body.get("error", {}).get("message", "")
+                if "invalid" in err_msg.lower() or "incorrect" in err_msg.lower():
+                    return False, "Неверный ключ — проверьте правильность"
+                if err_msg:
+                    return False, f"Ключ отклонён: {err_msg[:80]}"
+            except Exception:
+                pass
+            return False, "Неверный ключ (401) — проверьте правильность"
+        if exc.code == 403:
+            return False, "Ключ верный, но нет прав на /v1/models — попробуйте использовать"
         if exc.code == 429:
             return True, "Лимит запросов, но ключ рабочий (429)"
         return False, f"Ошибка HTTP {exc.code}"
