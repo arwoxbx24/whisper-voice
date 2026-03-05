@@ -30,23 +30,35 @@ def _setup_log_dir() -> None:
 
 
 def _setup_logging(debug: bool) -> None:
+    """Setup logging with RotatingFileHandler (5 MB, 3 backups) via error_handler."""
     _setup_log_dir()
-    level = logging.DEBUG if debug else logging.INFO
-
-    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     try:
-        fh = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
-        fh.setLevel(level)
-        handlers.append(fh)
+        from src.error_handler import setup_logging, install_global_handler
+        setup_logging(debug=debug)
+        install_global_handler()
     except Exception:
-        pass  # file handler unavailable (read-only FS etc.)
-
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
-        datefmt="%H:%M:%S",
-        handlers=handlers,
-    )
+        # Fallback if error_handler not available
+        level = logging.DEBUG if debug else logging.INFO
+        handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
+        try:
+            import logging.handlers
+            rfh = logging.handlers.RotatingFileHandler(
+                str(_LOG_FILE), maxBytes=5 * 1024 * 1024,
+                backupCount=3, encoding="utf-8",
+            )
+            handlers.append(rfh)
+        except Exception:
+            try:
+                fh = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
+                handlers.append(fh)
+            except Exception:
+                pass
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
+            datefmt="%H:%M:%S",
+            handlers=handlers,
+        )
 
 
 def _show_error_dialog(title: str, message: str) -> None:
@@ -55,6 +67,13 @@ def _show_error_dialog(title: str, message: str) -> None:
     the user can see fatal errors even without a console.
     Silently falls back to stderr if tkinter is unavailable.
     """
+    try:
+        from src.error_handler import show_error_dialog
+        show_error_dialog(title, message)
+        return
+    except Exception:
+        pass
+    # Direct fallback without error_handler
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -124,8 +143,18 @@ def _run_setup_wizard(config: dict, on_complete=None) -> dict:
     return config
 
 
-def _friendly_error(raw: str) -> str:
-    """Convert technical error messages to user-friendly Russian descriptions."""
+def _friendly_error(exc_or_str) -> str:
+    """Convert exception or error string to user-friendly Russian description."""
+    try:
+        from src.error_handler import categorize_error
+        if isinstance(exc_or_str, BaseException):
+            return categorize_error(exc_or_str)
+        # Wrap string in a generic Exception for categorize_error
+        return categorize_error(Exception(exc_or_str))
+    except Exception:
+        pass
+    # Inline fallback if error_handler not importable
+    raw = str(exc_or_str)
     raw_lower = raw.lower()
     if "no internet" in raw_lower or "urlopen error" in raw_lower or "network" in raw_lower:
         return "Нет подключения к интернету.\nПроверьте соединение и перезапустите приложение."
@@ -143,7 +172,7 @@ def _friendly_error(raw: str) -> str:
         return "Нет доступа к устройству.\nПроверьте права доступа к микрофону."
     if "timeout" in raw_lower:
         return "Время ожидания истекло.\nПроверьте подключение к интернету."
-    return raw
+    return f"Произошла непредвиденная ошибка.\n\nЛог: {_LOG_FILE}"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -224,14 +253,14 @@ def main() -> int:
         app.run()
     except RuntimeError as exc:
         logger.error("%s", exc)
-        _show_error_dialog("Whisper Voice — Ошибка", _friendly_error(str(exc)))
+        _show_error_dialog("Whisper Voice — Ошибка", _friendly_error(exc))
         return 1
     except Exception as exc:
         tb = traceback.format_exc()
         logger.error("Unexpected error: %s\n%s", exc, tb)
         _show_error_dialog(
             "Whisper Voice — Неожиданная ошибка",
-            f"{_friendly_error(str(exc))}\n\nЛог-файл:\n{_LOG_FILE}",
+            f"{_friendly_error(exc)}\n\nЛог-файл:\n{_LOG_FILE}",
         )
         return 1
 

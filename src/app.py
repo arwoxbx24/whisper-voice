@@ -41,6 +41,7 @@ from .providers.openai_provider import OpenAIProvider
 from .providers.deepgram_provider import DeepgramProvider
 from .providers.local_provider import LocalProvider
 from .providers.base import STTProvider
+from .error_handler import categorize_error, show_error_from_thread
 
 # Backward compat alias
 TextInserter = SmartTextInserter
@@ -74,6 +75,10 @@ class WhisperVoiceApp:
         self._audio_cache: Optional[AudioCache] = None
         self._network_monitor: Optional[NetworkMonitor] = None
         self._engine: Optional[TranscriptionEngine] = None
+
+        # Recording timer (auto-stop after max_recording_seconds)
+        self._recording_timer: Optional[threading.Timer] = None
+        self._recording_start_time: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -139,15 +144,40 @@ class WhisperVoiceApp:
             logger.info("Recording started")
             if self._ui:
                 self._ui.show_recording()
+
+            # Start auto-stop timer
+            max_sec = self.config.get("max_recording_seconds", 300)
+            if max_sec and max_sec > 0:
+                self._recording_start_time = time.time()
+                self._recording_timer = threading.Timer(max_sec, self._auto_stop_recording)
+                self._recording_timer.daemon = True
+                self._recording_timer.start()
+                # Start countdown display
+                if self._ui and self._ui._root:
+                    self._ui._root.after(0, self._update_recording_countdown)
         except Exception as exc:
             logger.error("Failed to start recording: %s", exc)
             self._recording = False
+            friendly = categorize_error(exc)
+            tk_root = self._ui._root if self._ui else None
+            show_error_from_thread(
+                "Whisper Voice — Ошибка записи",
+                friendly,
+                tk_root=tk_root,
+            )
+
+    def _cancel_recording_timer(self) -> None:
+        """Cancel the auto-stop timer (call while holding _lock or before releasing)."""
+        if self._recording_timer is not None:
+            self._recording_timer.cancel()
+            self._recording_timer = None
 
     def _stop_recording_async(self) -> None:
         """Stop recording and transcribe in a background thread (inside _lock)."""
         if not self._recording:
             return
         self._recording = False
+        self._cancel_recording_timer()
         recorder = self._recorder
         self._recorder = None
 
@@ -186,6 +216,13 @@ class WhisperVoiceApp:
                     text = self._transcriber.transcribe(wav_path)
             except Exception as exc:
                 logger.error("Transcription failed: %s", exc)
+                friendly = categorize_error(exc)
+                tk_root = self._ui._root if self._ui else None
+                show_error_from_thread(
+                    "Whisper Voice — Ошибка транскрипции",
+                    friendly,
+                    tk_root=tk_root,
+                )
                 # Cache audio if cache is available so it can be retried later
                 if self._audio_cache and wav_path:
                     try:
@@ -221,6 +258,52 @@ class WhisperVoiceApp:
                     pass
 
     # ------------------------------------------------------------------
+    # Auto-stop recording after max duration
+    # ------------------------------------------------------------------
+
+    def _auto_stop_recording(self) -> None:
+        """Called by threading.Timer when max recording duration is reached."""
+        logger.info("Автоматическая остановка записи (достигнут лимит времени)")
+        with self._lock:
+            if not self._recording:
+                return  # already stopped manually
+            self._recording_timer = None  # timer already fired — no need to cancel
+            self._stop_recording_async()
+        # Show notification in UI thread
+        if self._ui and self._ui._root:
+            self._ui._root.after(0, self._show_auto_stop_notification)
+
+    def _show_auto_stop_notification(self) -> None:
+        """Display a brief notification that recording was auto-stopped."""
+        try:
+            max_sec = self.config.get("max_recording_seconds", 300)
+            minutes = max_sec // 60
+            msg = f"Запись остановлена автоматически (лимит {minutes} мин)"
+            logger.info(msg)
+            # Show in UI if it supports notifications; gracefully skip if not
+            if self._ui and hasattr(self._ui, "show_notification"):
+                self._ui.show_notification(msg)
+        except Exception as exc:
+            logger.debug("Auto-stop notification error: %s", exc)
+
+    def _update_recording_countdown(self) -> None:
+        """Periodic (1 s) callback to update countdown display in UI (tk thread)."""
+        if not self._recording:
+            # Recording stopped — clear countdown
+            if self._ui and hasattr(self._ui, "update_countdown"):
+                self._ui.update_countdown(None)
+            return
+        max_sec = self.config.get("max_recording_seconds", 300)
+        if not max_sec or max_sec <= 0:
+            return
+        elapsed = time.time() - self._recording_start_time
+        remaining = max(0, int(max_sec - elapsed))
+        if self._ui and hasattr(self._ui, "update_countdown"):
+            self._ui.update_countdown(remaining)
+        if remaining > 0 and self._ui and self._ui._root:
+            self._ui._root.after(1000, self._update_recording_countdown)
+
+    # ------------------------------------------------------------------
     # Cancel recording (from UI "X" button)
     # ------------------------------------------------------------------
 
@@ -230,6 +313,7 @@ class WhisperVoiceApp:
             if not self._recording:
                 return
             self._recording = False
+            self._cancel_recording_timer()
             recorder = self._recorder
             self._recorder = None
 

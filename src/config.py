@@ -43,6 +43,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "sound_feedback": True,
     "auto_start": False,
     "log_level": "INFO",
+    # Recording limits
+    "max_recording_seconds": 300,   # 0 = unlimited
 }
 
 VALID_HOTKEY_MODES = {"toggle", "hold"}
@@ -109,6 +111,12 @@ def _validate(cfg: dict[str, Any]) -> None:
     if log_level not in VALID_LOG_LEVELS:
         raise ConfigError(
             f"log_level must be one of {VALID_LOG_LEVELS}, got {log_level!r}"
+        )
+
+    max_rec = cfg.get("max_recording_seconds", 300)
+    if not isinstance(max_rec, (int, float)) or max_rec < 0 or max_rec > 3600:
+        raise ConfigError(
+            f"max_recording_seconds must be 0..3600 (0 = unlimited), got {max_rec!r}"
         )
 
 

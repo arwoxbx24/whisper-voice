@@ -279,6 +279,15 @@ class RecordingIndicator:
         self._drag_x = 0
         self._drag_y = 0
 
+        # --- Countdown label (shown when max_recording_seconds > 0) ---
+        self._countdown_id = canvas.create_text(
+            self.WIN_W // 2, self.WIN_H - 8,
+            text="",
+            fill="#aaaaaa",
+            font=("Helvetica", 7),
+            anchor="center",
+        )
+
         self._win = win
         self._canvas = canvas
         self._dot_id = dot_id
@@ -332,6 +341,22 @@ class RecordingIndicator:
     def update_level(self, level: float):
         """Update audio level bar. Thread-safe. level ∈ [0.0, 1.0]."""
         self._level = max(0.0, min(1.0, level))
+
+    def update_countdown(self, remaining: Optional[int]):
+        """Update countdown text. Thread-safe. remaining=None clears the label."""
+        self._win.after(0, self._do_update_countdown, remaining)
+
+    def _do_update_countdown(self, remaining: Optional[int]):
+        """Must run in tk thread."""
+        if remaining is None or remaining <= 0:
+            self._canvas.itemconfig(self._countdown_id, text="")
+            return
+        minutes = remaining // 60
+        seconds = remaining % 60
+        text = f"авто-стоп {minutes:02d}:{seconds:02d}"
+        # Turn red when less than 30 seconds left
+        color = "#e53935" if remaining <= 30 else "#aaaaaa"
+        self._canvas.itemconfig(self._countdown_id, text=text, fill=color)
 
     # ----------------------------------------------------------- internal ops
 
@@ -587,6 +612,42 @@ class UIController:
         """
         if self._indicator:
             self._indicator.update_level(level)
+
+    def update_countdown(self, remaining: Optional[int]) -> None:
+        """Update the recording countdown in the indicator. Thread-safe."""
+        if self._indicator:
+            self._indicator.update_countdown(remaining)
+
+    def show_notification(self, message: str) -> None:
+        """Show a brief notification in the recording indicator title area. Thread-safe."""
+        if self._root:
+            self._root.after(0, lambda: self._do_show_notification(message))
+
+    def _do_show_notification(self, message: str) -> None:
+        """Show notification (tk thread). Uses a simple Toplevel toast."""
+        try:
+            tk, _ = _import_tkinter()
+            toast = tk.Toplevel(self._root)
+            toast.overrideredirect(True)
+            toast.attributes("-topmost", True)
+            toast.configure(bg="#323232")
+            sw = toast.winfo_screenwidth()
+            sh = toast.winfo_screenheight()
+            w, h = 320, 36
+            x = sw // 2 - w // 2
+            y = sh - 120
+            toast.geometry(f"{w}x{h}+{x}+{y}")
+            lbl = tk.Label(
+                toast, text=message,
+                bg="#323232", fg="#ffffff",
+                font=("Helvetica", 10),
+                padx=12, pady=6,
+            )
+            lbl.pack(fill="both", expand=True)
+            # Auto-close after 3 seconds
+            toast.after(3000, toast.destroy)
+        except Exception as exc:
+            log.debug("Notification display error: %s", exc)
 
     def is_recording(self) -> bool:
         return self._recording
