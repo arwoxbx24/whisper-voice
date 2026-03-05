@@ -75,17 +75,75 @@ def _show_error_dialog(title: str, message: str) -> None:
 def _show_config_setup_dialog(config_path: str) -> None:
     """
     Show a friendly guide to set up the API key when no key is configured.
+    Tries to use the SetupWizard first; falls back to a simple error dialog.
     """
+    try:
+        from src.setup_wizard import SetupWizard
+        from src import config as cfg_module
+        config = cfg_module.load_config()
+        wizard = SetupWizard(config)
+        wizard.run()
+        return
+    except Exception:
+        pass
     msg = (
-        "Whisper Voice needs an OpenAI API key to work.\n\n"
-        f"Config file location:\n  {config_path}\n\n"
-        "Steps:\n"
-        "1. Open the config file in Notepad\n"
-        "2. Replace the empty \"api_key\" value with your OpenAI API key\n"
-        "3. Save the file and restart Whisper Voice\n\n"
-        "Get your API key at: https://platform.openai.com/api-keys"
+        "Whisper Voice нужен API ключ OpenAI.\n\n"
+        f"Файл настроек:\n  {config_path}\n\n"
+        "Шаги:\n"
+        "1. Откройте файл настроек в Блокноте\n"
+        "2. Вставьте ваш API ключ в поле \"api_key\"\n"
+        "3. Сохраните и перезапустите Whisper Voice\n\n"
+        "Получить ключ: https://platform.openai.com/api-keys"
     )
-    _show_error_dialog("Whisper Voice — Setup Required", msg)
+    _show_error_dialog("Whisper Voice — Требуется настройка", msg)
+
+
+def _run_setup_wizard(config: dict, on_complete=None) -> dict:
+    """
+    Run the Setup Wizard and return the (possibly updated) config.
+    Called on first launch (no api_key configured).
+    """
+    try:
+        from src.setup_wizard import SetupWizard
+        from src import config as cfg_module
+
+        updated_config = {}
+
+        def _on_save(new_cfg):
+            updated_config.update(new_cfg)
+
+        wizard = SetupWizard(config, on_save=_on_save)
+        wizard.run()
+
+        if updated_config:
+            return updated_config
+    except Exception as exc:
+        logger = logging.getLogger("whisper_voice")
+        logger.warning("SetupWizard failed: %s", exc)
+
+    return config
+
+
+def _friendly_error(raw: str) -> str:
+    """Convert technical error messages to user-friendly Russian descriptions."""
+    raw_lower = raw.lower()
+    if "no internet" in raw_lower or "urlopen error" in raw_lower or "network" in raw_lower:
+        return "Нет подключения к интернету.\nПроверьте соединение и перезапустите приложение."
+    if "401" in raw or "unauthorized" in raw_lower or "invalid api key" in raw_lower:
+        return (
+            "Неверный API ключ.\n\n"
+            "Откройте Настройки через иконку в трее и введите корректный ключ.\n"
+            "Получить ключ: https://platform.openai.com/api-keys"
+        )
+    if "429" in raw or "rate limit" in raw_lower:
+        return "Превышен лимит запросов к OpenAI API.\nПодождите немного и попробуйте снова."
+    if "microphone" in raw_lower or "audio" in raw_lower or "sounddevice" in raw_lower:
+        return "Микрофон не обнаружен или недоступен.\nПроверьте подключение микрофона."
+    if "permission" in raw_lower or "access denied" in raw_lower:
+        return "Нет доступа к устройству.\nПроверьте права доступа к микрофону."
+    if "timeout" in raw_lower:
+        return "Время ожидания истекло.\nПроверьте подключение к интернету."
+    return raw
 
 
 def _parse_args() -> argparse.Namespace:
@@ -142,19 +200,23 @@ def main() -> int:
         )
         return 1
 
-    # Check API key early and show friendly setup dialog instead of crashing
+    # Check API key early — show Setup Wizard on first run
     providers = config.get("stt_providers", ["openai"])
     openai_key = config.get("api_key", "").strip()
     deepgram_key = config.get("deepgram_api_key", "").strip()
     has_local = "local" in providers
-    needs_key = ("openai" in providers and not openai_key) or \
-                ("deepgram" in providers and not deepgram_key)
+    is_first_run = not cfg_module.CONFIG_FILE.exists() or (
+        not openai_key and not deepgram_key and not has_local
+    )
 
     if not has_local and not openai_key and not deepgram_key:
-        logger.warning("No API key configured — showing setup dialog")
-        _show_config_setup_dialog(str(cfg_module.CONFIG_FILE))
-        # Don't exit: if user dismisses dialog let app start anyway
-        # (they can set key later via config file and restart)
+        logger.warning("No API key configured — launching Setup Wizard")
+        config = _run_setup_wizard(config)
+        # Reload to pick up any changes saved by wizard
+        try:
+            config = cfg_module.load_config()
+        except Exception:
+            pass
 
     try:
         from src.app import WhisperVoiceApp
@@ -162,14 +224,14 @@ def main() -> int:
         app.run()
     except RuntimeError as exc:
         logger.error("%s", exc)
-        _show_error_dialog("Whisper Voice — Error", str(exc))
+        _show_error_dialog("Whisper Voice — Ошибка", _friendly_error(str(exc)))
         return 1
     except Exception as exc:
         tb = traceback.format_exc()
         logger.error("Unexpected error: %s\n%s", exc, tb)
         _show_error_dialog(
-            "Whisper Voice — Unexpected Error",
-            f"{exc}\n\nSee log for details:\n{_LOG_FILE}",
+            "Whisper Voice — Неожиданная ошибка",
+            f"{_friendly_error(str(exc))}\n\nЛог-файл:\n{_LOG_FILE}",
         )
         return 1
 

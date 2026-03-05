@@ -440,8 +440,8 @@ class WhisperVoiceApp:
         self._ui = UIController(
             on_stop_recording=self.on_hotkey_deactivate,
             on_cancel_recording=self.on_cancel_recording,
-            on_settings=self._noop,
-            on_about=self._noop,
+            on_settings=self._open_settings,
+            on_about=self._open_about,
             on_quit=self.quit,
             on_toggle_recording=self.on_hotkey_activate,
         )
@@ -472,6 +472,50 @@ class WhisperVoiceApp:
                 except Exception:
                     pass
                 self._recording = False
+
+    def _open_settings(self) -> None:
+        """Open Setup Wizard as settings dialog (called from tray menu)."""
+        import threading
+        def _run_wizard():
+            try:
+                from .setup_wizard import SetupWizard
+
+                def _on_save(new_cfg: dict) -> None:
+                    # Update live config and reinit components
+                    self.config.update(new_cfg)
+                    logger.info("Settings updated via wizard — restarting components")
+                    try:
+                        self._shutdown()
+                        self._init_components(new_cfg)
+                        logger.info("Components restarted after settings change")
+                    except Exception as exc:
+                        logger.error("Failed to restart components after settings: %s", exc)
+
+                wizard = SetupWizard(self.config, on_save=_on_save)
+                wizard.run()
+            except Exception as exc:
+                logger.error("Failed to open settings wizard: %s", exc)
+
+        t = threading.Thread(target=_run_wizard, daemon=True, name="settings-wizard")
+        t.start()
+
+    def _open_about(self) -> None:
+        """Show 'About' dialog (called from tray menu)."""
+        import threading
+        def _show():
+            try:
+                from .setup_wizard import show_about_dialog
+                # Pass tk root if available so dialog shows as child window
+                root = self._ui._root if self._ui else None
+                if root:
+                    root.after(0, lambda: show_about_dialog(root))
+                else:
+                    show_about_dialog()
+            except Exception as exc:
+                logger.error("Failed to open about dialog: %s", exc)
+
+        t = threading.Thread(target=_show, daemon=True, name="about-dialog")
+        t.start()
 
     @staticmethod
     def _noop() -> None:

@@ -433,15 +433,15 @@ class TrayIcon:
         if self._on_toggle:
             def _toggle(_icon, _item): self._on_toggle()
             menu_items.append(
-                pystray.MenuItem("Start / Stop Recording", _toggle, default=True)
+                pystray.MenuItem("Начать / Остановить запись", _toggle, default=True)
             )
             menu_items.append(pystray.Menu.SEPARATOR)
 
         menu_items += [
-            pystray.MenuItem("Settings", _settings),
-            pystray.MenuItem("About", _about),
+            pystray.MenuItem("Настройки", _settings),
+            pystray.MenuItem("О программе", _about),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", _quit),
+            pystray.MenuItem("Выход", _quit),
         ]
 
         self._icon = pystray.Icon(
