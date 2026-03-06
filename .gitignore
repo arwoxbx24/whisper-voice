@@ -7,3 +7,10 @@ build/
 *.egg-info/
 .eggs/
 reference/
+
+# Security — secrets and env files
+.env
+*.env
+.env.*
+.secrets*
+secrets/
