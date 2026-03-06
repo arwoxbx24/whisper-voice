@@ -44,7 +44,7 @@ jobs:
           name: WhisperVoice-windows
           path: dist/WhisperVoice.exe
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
@@ -52,7 +52,7 @@ jobs:
           name: WhisperVoice-portable-windows
           path: dist/WhisperVoice-portable-win64.zip
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
   release:
     runs-on: windows-latest
