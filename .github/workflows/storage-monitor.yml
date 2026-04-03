@@ -1,0 +1,43 @@
+name: Storage Monitor
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: check
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          USAGE=$(gh api /orgs/arwoxbx24 --jq '.disk_usage')
+          echo "disk_usage=${USAGE}" >> "$GITHUB_OUTPUT"
+          echo "Org disk usage: ${USAGE} KB"
+
+      - name: alert
+        if: ${{ fromJson(steps.check.outputs.disk_usage) > 400000 }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISK_USAGE: ${{ steps.check.outputs.disk_usage }}
+        run: |
+          MB=$(( DISK_USAGE / 1024 ))
+          PERCENT=$(( DISK_USAGE * 100 / 512000 ))
+          gh issue create \
+            --repo arwoxbx24/whisper-voice \
+            --title "Storage Alert: ${MB} MB used (${PERCENT}% of free limit)" \
+            --body "## Storage Monitor Alert
+
+          **Org:** arwoxbx24
+          **Usage:** ${MB} MB (${DISK_USAGE} KB)
+          **Threshold:** 400 MB (80% of 500 MB free limit)
+          **Percent used:** ${PERCENT}%
+
+          Please review repository storage and consider cleaning up large files or artifacts."
