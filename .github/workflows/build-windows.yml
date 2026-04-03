@@ -6,6 +6,11 @@ on:
       - main
     tags:
       - 'v*'
+    paths:
+      - '**.py'
+      - 'requirements*.txt'
+      - '*.spec'
+      - '.github/workflows/build-windows.yml'
   workflow_dispatch:
 
 jobs:
